@@ -2,6 +2,7 @@
 #include "gpt.h"
 #include "loss.h"
 #include "dataset.h"
+#include "backward.h"   //contains lm_head_backward + update_weights
 
 // Example training loop for a tiny GPT model
 int main()
@@ -13,6 +14,9 @@ int main()
     // Step 2: Load dataset
     // get_data() returns a vector<int> of token IDs
     auto data = get_data();
+
+    // Learning rate for SGD
+    float lr = 0.01f;
 
     // Step 3: Training loop
     for (int epoch = 0; epoch < 200; ++epoch)
@@ -26,16 +30,25 @@ int main()
             int target = data[i+1];   // Next token to predict
 
             // Step 3b: Forward pass through GPT
+            Tensor x = model.embed(input);   // keep input embedding--> needed for backprop
             Tensor logits = model.forward(input);
 
-            // Step 3c: Compute cross-entropy loss
-            float loss = cross_entropy(logits, target);
+            // Step 3c: Compute cross-entropy loss + gradients
+            Tensor d_logits(1, model.vocab_size);  // gradient wrt logits
+            float loss = cross_entropy_with_grad(logits, target, d_logits);
 
             // Step 3d: Accumulate loss
             total_loss += loss;
+
+            // Step 3e: Backward pass (LM head only for now)
+            Tensor d_x(1, model.d);  // gradient flowing backward into representation
+            lm_head_backward(x, model.lm_head, d_logits, d_x);
+
+            // Step 3f: Update weights (SGD)
+            update_weights(model.lm_head.W, lr);
         }
 
-        // Step 3e: Print epoch and total loss
+        // Step 3g: Print epoch and total loss
         std::cout << "Epoch " << epoch << " Loss: " << total_loss << "\n";
     }
     return 0;
@@ -43,6 +56,13 @@ int main()
 
 /* 
 Note for anyone reading this file-
-I have not implemented backpropagation yet
-This is just has forward pass + loss computation
+Current implementation has- 
+- fwd pass + loss computation
+- backpropagation (LM head only)
+- gradient computation via function cross_entropy_with_grad
+- weight updates using SGD
+
+Limitations- 
+- Attention weights are not trained yet
+- FFN weights are not trained yet
 */
